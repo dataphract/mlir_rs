@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/build_common",
+    "crates/circt",
+    "crates/circt_sys",
+    "crates/mlir",
+    "crates/mlir_sys",
+]
