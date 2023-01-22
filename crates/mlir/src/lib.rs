@@ -267,6 +267,10 @@ borrowed_types! {
     pub struct BlockRef = ffi::MlirBlock;
     /// A mutable reference to a [`Block`].
     pub struct BlockMut = ffi::MlirBlock;
+    /// A reference to an [`Operation`].
+    pub struct OperationRef = ffi::MlirOperation;
+    /// A mutable reference to an [`Operation`].
+    pub struct OperationMut = ffi::MlirOperation;
     /// A reference to a [`Region`].
     pub struct RegionRef = ffi::MlirRegion;
     /// A mutable reference to a [`Region`].
@@ -668,6 +672,8 @@ impl NamedAttribute {
     }
 }
 
+// Operation ==================================================================
+
 impl Operation {
     pub fn create(mut state: OperationState<'_>) -> Option<Operation> {
         let op = unsafe { ffi::mlirOperationCreate(&mut state.inner as *mut _) };
@@ -679,6 +685,30 @@ impl Operation {
         Some(Operation { inner: op })
     }
 }
+
+impl Deref for OperationRef<'_> {
+    type Target = Operation;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*(self as *const OperationRef as *const Operation) }
+    }
+}
+
+impl Deref for OperationMut<'_> {
+    type Target = Operation;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*(self as *const OperationMut as *const Operation) }
+    }
+}
+
+impl DerefMut for OperationMut<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *(self as *mut OperationMut as *mut Operation) }
+    }
+}
+
+// OperationState =============================================================
 
 #[repr(transparent)]
 pub struct OperationState<'name> {
@@ -752,7 +782,7 @@ impl<'name> OperationState<'name> {
         let len = regions.len();
         let cap = regions.capacity();
 
-        // Forget the original vector.
+        // Don't drop the decomposed vector.
         let _ = ManuallyDrop::new(regions);
 
         // Convert to Vec<ManuallyDrop<Region>>.
@@ -765,6 +795,11 @@ impl<'name> OperationState<'name> {
                 regions.as_ptr() as *const _,
             );
         }
+
+        // The new vector drops without dropping its elements.
+    }
+}
+
 // Region =====================================================================
 
 impl Region {
