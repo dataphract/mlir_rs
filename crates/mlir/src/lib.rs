@@ -263,8 +263,10 @@ semi_owned_types! {
 }
 
 borrowed_types! {
-    /// A reference to a [`Block`] owned by a region.
+    /// A reference to a [`Block`].
     pub struct BlockRef = ffi::MlirBlock;
+    /// A mutable reference to a [`Block`].
+    pub struct BlockMut = ffi::MlirBlock;
     pub struct RegionRef = ffi::MlirRegion;
 }
 
@@ -399,12 +401,72 @@ impl From<Type> for Attribute {
     }
 }
 
+// Block ======================================================================
+
 impl Block {
+    #[inline]
+    pub fn create() -> Block {
+        unsafe { Block::from_raw(ffi::mlirBlockCreate(0, ptr::null(), ptr::null())).unwrap() }
+    }
+
+    #[inline]
+    pub fn create_with_args(args: &[Type], locs: &[Location]) -> Block {
+        assert_eq!(
+            args.len(),
+            locs.len(),
+            "block arguments and locations arrays should be the same length"
+        );
+
+        unsafe {
+            Block::from_raw(ffi::mlirBlockCreate(
+                args.len() as isize,
+                args.as_ptr() as *const ffi::MlirType,
+                locs.as_ptr() as *const ffi::MlirLocation,
+            ))
+            .unwrap()
+        }
+    }
+
+    #[inline]
+    pub fn add_argument(&mut self, ty: Type, loc: Location) {
+        unsafe {
+            ffi::mlirBlockAddArgument(self.inner, ty.inner, loc.inner);
+        }
+    }
+
+    #[inline]
+    pub fn terminator(&self) -> Option<OperationRef> {
+        unsafe { OperationRef::from_raw(ffi::mlirBlockGetTerminator(self.inner)) }
+    }
+
     /// Returns the closest surrounding operation that contains this block.
     ///
     /// Returns `None` if this block is unlinked.
-    pub fn parent_operation(&self) -> Option<Operation> {
-        unsafe { Operation::from_raw(ffi::mlirBlockGetParentOperation(self.inner)) }
+    #[inline]
+    pub fn parent_operation(&self) -> Option<OperationRef> {
+        unsafe { OperationRef::from_raw(ffi::mlirBlockGetParentOperation(self.inner)) }
+    }
+}
+
+impl Deref for BlockRef<'_> {
+    type Target = Block;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*(self as *const BlockRef as *const Block) }
+    }
+}
+
+impl Deref for BlockMut<'_> {
+    type Target = Block;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*(self as *const BlockMut as *const Block) }
+    }
+}
+
+impl DerefMut for BlockMut<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *(self as *mut BlockMut as *mut Block) }
     }
 }
 
