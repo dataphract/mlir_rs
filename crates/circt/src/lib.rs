@@ -4,11 +4,11 @@ use itertools::Itertools;
 
 use circt_sys as ffi;
 use mlir::{
-    attribute::{
+    attr::{
         ArrayAttr, DictionaryAttr, FlatSymbolRefAttr, FUNCTION_ARG_DICT_ATTR_NAME,
         FUNCTION_RESULT_DICT_ATTR_NAME,
     },
-    Attribute, Context, Identifier, Location, NamedAttribute, Operation, OperationState, StringRef,
+    Attribute, Identifier, Location, NamedAttribute, Operation, OperationState, StringRef,
     SymbolTable, Type,
 };
 
@@ -33,6 +33,12 @@ macro_rules! is_fns_ext {
 pub(crate) use is_fns_ext;
 
 pub mod hw {
+    use mlir::{
+        attr::{TypeAttr, FUNCTION_TYPE_ATTR_NAME},
+        ty::FunctionType,
+        Block, Region,
+    };
+
     use super::*;
 
     use self::ty::TypeExt;
@@ -104,7 +110,7 @@ pub mod hw {
         pub name: StringRef<'a>,
         pub ports: ModulePortInfo,
         pub params: ArrayAttr,
-        pub comment: Identifier,
+        pub comment: Option<Identifier>,
         pub attrs: &'a [NamedAttribute],
     }
 
@@ -112,12 +118,12 @@ pub mod hw {
         NamedAttribute::get("hw.exportPort", FlatSymbolRefAttr::new(sym.value()))
     }
 
-    /// Wraps inout parameters in `InOutType` and return as an `Attribute`.
-    fn wrap_inout(port: &PortInfo) -> Attribute {
+    /// Wraps inout parameters in `InOutType` and returns as a `Type`.
+    fn wrap_inout(port: &PortInfo) -> Type {
         if port.direction == PortDirection::InOut && !port.ty.is_hw_inout() {
             todo!("wrap ty in InOutType")
         } else {
-            port.ty.into()
+            port.ty
         }
     }
 
@@ -150,29 +156,22 @@ pub mod hw {
                 .map(|port| {
                     (
                         Attribute::from(port.name),
-                        wrap_inout(&port),
-                        port_attrs(&port),
+                        wrap_inout(port),
+                        port_attrs(port),
                     )
                 })
-                .multiunzip::<(Vec<Attribute>, Vec<Attribute>, Vec<Attribute>)>();
+                .multiunzip::<(Vec<Attribute>, Vec<Type>, Vec<Attribute>)>();
 
             let (result_names, result_types, result_attrs) = info
                 .ports
                 .outputs
                 .iter()
-                .map(|port| {
-                    (
-                        Attribute::from(port.name),
-                        Attribute::from(port.ty),
-                        port_attrs(&port),
-                    )
-                })
-                .multiunzip::<(Vec<Attribute>, Vec<Attribute>, Vec<Attribute>)>();
+                .map(|port| (Attribute::from(port.name), port.ty, port_attrs(port)))
+                .multiunzip::<(Vec<Attribute>, Vec<Type>, Vec<Attribute>)>();
 
-            let ty = todo!("getFunctionType(argTypes, resultTypes)");
+            let ty = FunctionType::get(&arg_types, &result_types);
 
-            // auto type = builder.getFunctionType(argTypes, resultTypes);
-            // result.addAttribute(getTypeAttrName(), TypeAttr::get(type));
+            state.add_attribute(FUNCTION_TYPE_ATTR_NAME, TypeAttr::get(ty.into()));
             state.add_attribute("argNames", ArrayAttr::create(&arg_names));
             state.add_attribute("resultNames", ArrayAttr::create(&result_names));
             state.add_attribute(FUNCTION_ARG_DICT_ATTR_NAME, ArrayAttr::create(&arg_attrs));
@@ -181,10 +180,18 @@ pub mod hw {
                 ArrayAttr::create(&result_attrs),
             );
             state.add_attribute("parameters", info.params);
-            state.add_attribute("comment", info.comment);
+            state.add_attribute(
+                "comment",
+                info.comment.unwrap_or_else(|| Identifier::get("")),
+            );
             state.add_attributes(info.attrs);
 
-            state.add_region(todo!());
+            let mut region = state.add_region(Region::create());
+            let mut block = region.append_block(Block::create());
+
+            for input in &info.ports.inputs {
+                block.add_argument(input.ty, Location::unknown());
+            }
 
             todo!()
         }
