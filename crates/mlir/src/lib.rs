@@ -13,9 +13,9 @@ use mlir_sys as ffi;
 use once_cell::sync::OnceCell;
 use ty::TypeSubtype;
 
-use crate::attribute::TypeAttr;
+use crate::attr::TypeAttr;
 
-pub mod attribute;
+pub mod attr;
 pub mod cursor;
 pub mod ty;
 
@@ -327,6 +327,7 @@ macro_rules! is_fns_ext {
             }
         };
     }
+// Attribute ==================================================================
 
 is_fns! {
     impl Attribute {
@@ -372,8 +373,22 @@ impl<'a, S> From<S> for Attribute
 where
     S: Into<StringRef<'a>>,
 {
+    #[inline]
     fn from(value: S) -> Self {
         Attribute::string(value)
+    }
+}
+
+impl From<Identifier> for Attribute {
+    #[inline]
+    fn from(value: Identifier) -> Self {
+        // Under the hood, `MlirIdentifier` is actually a `StringAttr`, so it's safe to
+        // reinterpret the pointer this way.
+        Attribute {
+            inner: ffi::MlirAttribute {
+                ptr: value.inner.ptr,
+            },
+        }
     }
 }
 
@@ -457,18 +472,6 @@ impl DialectRegistry {
         }
 
         Some(DialectRegistry { inner: reg })
-    }
-}
-
-impl From<Identifier> for Attribute {
-    fn from(value: Identifier) -> Self {
-        // Under the hood, `MlirIdentifier` is actually a `StringAttr`, so it's safe to
-        // reinterpret the pointer this way.
-        Attribute {
-            inner: ffi::MlirAttribute {
-                ptr: value.inner.ptr,
-            },
-        }
     }
 }
 
@@ -571,6 +574,8 @@ impl Module {
     }
 }
 
+// NamedAttribute =============================================================
+
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct NamedAttribute {
@@ -625,7 +630,7 @@ impl<'name> OperationState<'name> {
         }
     }
 
-    pub fn add_attribute<'a, I, A>(&mut self, ident: I, attribute: A)
+    pub fn add_attribute<I, A>(&mut self, ident: I, attribute: A)
     where
         I: Into<Identifier>,
         A: Into<Attribute>,
