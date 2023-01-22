@@ -11,11 +11,13 @@ use std::{
 
 use mlir_sys as ffi;
 use once_cell::sync::OnceCell;
+use ty::TypeSubtype;
 
 use crate::attribute::TypeAttr;
 
 pub mod attribute;
 pub mod cursor;
+pub mod ty;
 
 #[doc(hidden)]
 pub struct SyncContext {
@@ -291,6 +293,7 @@ impl_display! {
     impl fmt::Display for Attribute = ffi::mlirAttributePrint;
     impl fmt::Display for Location = ffi::mlirLocationPrint;
     impl fmt::Display for Operation = ffi::mlirOperationPrint;
+    impl fmt::Display for Type = ffi::mlirTypePrint;
 }
 
 /// Defines methods of the form `fn(&self) -> bool`.
@@ -341,8 +344,10 @@ is_fns! {
         pub fn is_unit = ffi::mlirAttributeIsAUnit;
     }
 }
+pub(crate) use is_fns;
 
 impl Attribute {
+    #[inline]
     pub fn array(elements: &[Attribute]) -> Attribute {
         // Safety: attribute creation is synchronized internally.
         context().without_mutex(|cx| unsafe {
@@ -369,6 +374,13 @@ where
 {
     fn from(value: S) -> Self {
         Attribute::string(value)
+    }
+}
+
+impl From<Type> for Attribute {
+    #[inline]
+    fn from(value: Type) -> Self {
+        TypeAttr::from(value).into()
     }
 }
 
@@ -460,11 +472,6 @@ impl From<Identifier> for Attribute {
     }
 }
 
-impl From<Type> for Attribute {
-    fn from(value: Type) -> Self {
-        TypeAttr::from(value).into()
-    }
-}
 
 impl Identifier {
     pub fn get<'a, S: Into<StringRef<'a>>>(value: S) -> Identifier {
@@ -744,6 +751,14 @@ impl SymbolTable {
 
     pub fn visibility_attribute_name() -> StringRef<'static> {
         unsafe { StringRef::from_raw(ffi::mlirSymbolTableGetVisibilityAttributeName()) }
+    }
+}
+
+// Type =======================================================================
+
+impl Type {
+    pub fn downcast<T: TypeSubtype>(self) -> Result<T, Self> {
+        T::downcast_from(self)
     }
 }
 
