@@ -61,7 +61,7 @@ macro_rules! owned_types {
         $v:vis struct $name:ident = $inner:path;
     )*) => {
         $(
-            struct_def!($(#[$attr])* $name, $inner);
+            struct_def!($(#[$attr])* $v $name, $inner);
             raw_impls!($name, $inner);
         )*
     };
@@ -74,7 +74,7 @@ macro_rules! semi_owned_types {
         $v:vis struct $name:ident = $inner:path;
     )*) => {
         $(
-            struct_def!($(#[$attr])* $name, $inner);
+            struct_def!($(#[$attr])* $v $name, $inner);
             raw_impls!($name, $inner);
         )*
     };
@@ -87,7 +87,7 @@ macro_rules! borrowed_types {
         $v:vis struct $name:ident = $inner:path;
     )*) => {
         $(
-            struct_def!($(#[$attr])* #[derive(Copy, Clone)] $name<'a>, $inner);
+            struct_def!($(#[$attr])* #[derive(Copy, Clone)] $v $name<'a>, $inner);
             raw_impls!($name<'a>, $inner);
         )*
     };
@@ -99,17 +99,17 @@ macro_rules! uniqued_types {
         $v:vis struct $name:ident = $inner:path;
     )*) => {
         $(
-            struct_def!($(#[$attr])* #[derive(Copy, Clone)] $name, $inner);
+            struct_def!($(#[$attr])* #[derive(Copy, Clone)] $v $name, $inner);
             raw_impls!($name, $inner);
         )*
     };
 }
 
 macro_rules! struct_def {
-    ($(#[$m:meta])* $name:ident $(<$lt:lifetime>)? , $inner:path) => {
+    ($(#[$m:meta])* $v:vis $name:ident $(<$lt:lifetime>)? , $inner:path) => {
         $(#[$m])*
         #[repr(transparent)]
-        pub struct $name $(<$lt>)? {
+        $v struct $name $(<$lt>)? {
             #[allow(dead_code)]
             pub(crate) inner: $inner,
             $(pub (crate) phantom: PhantomData<&$lt ()>,)?
