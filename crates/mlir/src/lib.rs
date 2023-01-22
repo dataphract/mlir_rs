@@ -267,7 +267,10 @@ borrowed_types! {
     pub struct BlockRef = ffi::MlirBlock;
     /// A mutable reference to a [`Block`].
     pub struct BlockMut = ffi::MlirBlock;
+    /// A reference to a [`Region`].
     pub struct RegionRef = ffi::MlirRegion;
+    /// A mutable reference to a [`Region`].
+    pub struct RegionMut = ffi::MlirRegion;
 }
 
 uniqued_types! {
@@ -730,7 +733,8 @@ impl<'name> OperationState<'name> {
         }
     }
 
-    pub fn add_region(&mut self, region: Region) {
+    pub fn add_region(&mut self, region: Region) -> RegionMut {
+        // Don't drop the region.
         let region = ManuallyDrop::new(region);
 
         unsafe {
@@ -761,6 +765,42 @@ impl<'name> OperationState<'name> {
                 regions.as_ptr() as *const _,
             );
         }
+// Region =====================================================================
+
+impl Region {
+    pub fn create() -> Region {
+        unsafe { Region::from_raw(ffi::mlirRegionCreate()).unwrap() }
+    }
+
+    pub fn append_block(&mut self, block: Block) -> BlockMut {
+        let block = ManuallyDrop::new(block);
+
+        unsafe {
+            ffi::mlirRegionAppendOwnedBlock(self.inner, block.inner);
+            BlockMut::from_raw(block.inner).unwrap()
+        }
+    }
+}
+
+impl Deref for RegionRef<'_> {
+    type Target = Region;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*(self as *const RegionRef as *const Region) }
+    }
+}
+
+impl Deref for RegionMut<'_> {
+    type Target = Region;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*(self as *const RegionMut as *const Region) }
+    }
+}
+
+impl DerefMut for RegionMut<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *(self as *mut RegionMut as *mut Region) }
     }
 }
 
