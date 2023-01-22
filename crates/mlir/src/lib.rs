@@ -4,8 +4,9 @@ use std::{
     ffi::{c_char, c_uint, c_void},
     fmt::{self, Formatter},
     marker::PhantomData,
-    mem::{self, ManuallyDrop},
-    slice,
+    mem::ManuallyDrop,
+    ops::{Deref, DerefMut},
+    ptr, slice,
     sync::Mutex,
 };
 
@@ -124,7 +125,13 @@ macro_rules! struct_def {
 macro_rules! raw_impls {
     ($name:ident, $inner:path) => {
         impl $name {
+            #[doc = concat!("Construct a `", stringify!($name), "` from its C API equivalent.")]
+            ///
+            /// # Safety
+            ///
+            /// Calling this constructor must not result in duplicate ownership or mutable aliasing.
             #[allow(dead_code)]
+            #[inline]
             pub unsafe fn from_raw(raw: $inner) -> Option<$name> {
                 if raw.ptr.is_null() {
                     return None;
@@ -133,7 +140,9 @@ macro_rules! raw_impls {
                 Some($name { inner: raw })
             }
 
+            #[doc = concat!("Obtain the C API equivalent of a `", stringify!($name), "`.")]
             #[allow(dead_code)]
+            #[inline]
             pub fn as_raw(&self) -> $inner {
                 self.inner
             }
@@ -142,7 +151,13 @@ macro_rules! raw_impls {
 
     ($name:ident <$lt:lifetime> , $inner:path) => {
         impl<$lt> $name<$lt> {
+            #[doc = concat!("Construct a `", stringify!($name), "` from its C API equivalent.")]
+            ///
+            /// # Safety
+            ///
+            /// Calling this constructor must not result in duplicate ownership or mutable aliasing.
             #[allow(dead_code)]
+            #[inline]
             pub unsafe fn from_raw(raw: $inner) -> Option<$name<$lt>> {
                 if raw.ptr.is_null() {
                     return None;
@@ -154,7 +169,9 @@ macro_rules! raw_impls {
                 })
             }
 
+            #[doc = concat!("Obtain the C API equivalent of a `", stringify!($name), "`.")]
             #[allow(dead_code)]
+            #[inline]
             pub fn as_raw(&self) -> $inner {
                 self.inner
             }
@@ -188,6 +205,7 @@ macro_rules! impl_eq {
     ($(impl$(<$lt:lifetime>)? Eq for $name:ident$(<$lt2:lifetime>)? = $eq_fn:path;)*) => {
         $(
             impl$(<$lt>)? PartialEq for $name$(<$lt2>)? {
+                #[inline]
                 fn eq(&self, other: &Self) -> bool {
                     unsafe { $eq_fn(self.inner, other.inner) }
                 }
@@ -198,6 +216,7 @@ macro_rules! impl_eq {
     };
 }
 
+// User data object for use in MLIR formatting callbacks.
 struct FmtUserdata<'fmt, W: fmt::Write> {
     w: &'fmt mut W,
     error: Option<fmt::Error>,
@@ -307,35 +326,18 @@ impl_display! {
 
 /// Defines methods of the form `fn(&self) -> bool`.
 macro_rules! is_fns {
-        (impl$(<$lt:lifetime>)? $name:ident$(<$lt2:lifetime>)? {
-            $($v:vis fn $fn_name:ident = $ffi_name:path;)*
-        }) => {
-            impl $(<$lt>)? $name $(<$lt2>)? {
-                $($v fn $fn_name(&self) -> bool {
-                    unsafe { $ffi_name(self.inner) }
-                })*
-            }
-        };
-    }
+    (impl$(<$lt:lifetime>)? $name:ident$(<$lt2:lifetime>)? {
+        $($v:vis fn $fn_name:ident = $ffi_name:path;)*
+    }) => {
+        impl $(<$lt>)? $name $(<$lt2>)? {
+            #[inline]
+            $($v fn $fn_name(&self) -> bool {
+                unsafe { $ffi_name(self.inner) }
+            })*
+        }
+    };
+}
 
-/// Defines an extension trait on a type with trait methods of the form `fn(&self) -> bool`.
-macro_rules! is_fns_ext {
-        (
-            $v:vis trait $tr:ident: $name:ident$(<$lt:lifetime>)? {
-                $(fn $fn_name:ident = $ffi_name:path;)*
-            }
-        ) => {
-            $v trait $tr: crate::private::Sealed {
-                $(fn $fn_name(&self) -> bool;)*
-            }
-
-            impl $(<$lt>)? $tr for $name $(<$lt>)? {
-                $(fn $fn_name(&self) -> bool {
-                    unsafe { $ffi_name(self.inner) }
-                })*
-            }
-        };
-    }
 // Attribute ==================================================================
 
 is_fns! {
@@ -370,6 +372,7 @@ impl Attribute {
         })
     }
 
+    #[inline]
     pub fn string<'a, S: Into<StringRef<'a>>>(s: S) -> Attribute {
         // Safety: attribute creation is synchronized internally.
         context().without_mutex(|cx| unsafe {
@@ -501,11 +504,15 @@ impl Drop for Context {
     }
 }
 
+// Dialect ====================================================================
+
 impl Dialect {
     pub fn namespace(&self) -> StringRef {
         unsafe { StringRef::from_raw(ffi::mlirDialectGetNamespace(self.inner)) }
     }
 }
+
+// DialectHandle ==============================================================
 
 impl DialectHandle {
     pub fn register_dialect(&self) {
@@ -526,6 +533,8 @@ impl DialectHandle {
     }
 }
 
+// DialectRegistry ============================================================
+
 impl Drop for DialectRegistry {
     fn drop(&mut self) {
         unsafe { ffi::mlirDialectRegistryDestroy(self.inner) }
@@ -544,6 +553,7 @@ impl DialectRegistry {
     }
 }
 
+// Identifier =================================================================
 
 impl Identifier {
     pub fn get<'a, S: Into<StringRef<'a>>>(value: S) -> Identifier {
@@ -553,8 +563,7 @@ impl Identifier {
     }
 
     pub fn value(&self) -> StringRef {
-        context()
-            .without_mutex(|cx| unsafe { StringRef::from_raw(ffi::mlirIdentifierStr(self.inner)) })
+        unsafe { StringRef::from_raw(ffi::mlirIdentifierStr(self.inner)) }
     }
 }
 
@@ -566,6 +575,8 @@ where
         Identifier::get(value)
     }
 }
+
+// Location ===================================================================
 
 impl Location {
     pub fn call_site(callee: Location, caller: Location) -> Location {
@@ -584,7 +595,7 @@ impl Location {
 
         // These are no-ops on almost every platform, but it's possible for c_uint to be a u16.
         let line: c_uint = line.try_into().unwrap();
-        let col: c_uint = line.try_into().unwrap();
+        let col: c_uint = col.try_into().unwrap();
 
         // Safety: Locations are uniqued and therefore synchronized.
         context().without_mutex(|cx| unsafe {
@@ -623,6 +634,8 @@ impl Location {
     }
 }
 
+// Module =====================================================================
+
 impl Module {
     pub fn create_empty(location: Location) -> Module {
         unsafe {
@@ -631,8 +644,10 @@ impl Module {
         }
     }
 
-    pub fn create_parse<'src, S: Into<StringRef<'src>>>(cx: &Context, module: S) -> Option<Module> {
-        unsafe { Module::from_raw(ffi::mlirModuleCreateParse(cx.inner, module.into().inner)) }
+    pub fn create_parse<'src, S: Into<StringRef<'src>>>(module: S) -> Option<Module> {
+        context().with_mutex(|cx| unsafe {
+            Module::from_raw(ffi::mlirModuleCreateParse(cx, module.into().inner))
+        })
     }
 
     pub fn body(&self) -> Block {
@@ -773,6 +788,8 @@ impl<'name> OperationState<'name> {
                 1,
                 &region.inner as *const _,
             );
+
+            RegionMut::from_raw(region.inner).unwrap()
         }
     }
 
@@ -839,6 +856,8 @@ impl DerefMut for RegionMut<'_> {
     }
 }
 
+// StringRef ==================================================================
+
 #[derive(Copy, Clone)]
 pub struct StringRef<'a> {
     pub(crate) inner: ffi::MlirStringRef,
@@ -885,6 +904,8 @@ impl<'a> StringRef<'a> {
         std::str::from_utf8(self.as_bytes()).ok()
     }
 }
+
+// SymbolTable ================================================================
 
 impl SymbolTable {
     pub fn symbol_attribute_name() -> StringRef<'static> {
