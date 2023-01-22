@@ -1,4 +1,4 @@
-//! Rust bindings to the CIRCT project.
+//! Rust bindings to the MLIR project.
 
 use std::{
     ffi::{c_char, c_uint, c_void},
